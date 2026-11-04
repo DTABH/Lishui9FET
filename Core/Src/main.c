@@ -376,22 +376,31 @@ int main(void)
 			}
 		  //check for Throttle override
 		  uint16_mapped_Throttle = map(ui16_throttle, ui16_throttle_offset , THROTTLE_MAX, 0, ui16_battery_current_max_raw);
+		  
+		  #if THROTTLE_SPEED_LIMIT_X100 > 0
+			//limit throttle to its own speed limit (independent of PAS and LegalFlag)
+			uint16_mapped_Throttle = map(ui16_SPEEDx100_kph, THROTTLE_SPEED_LIMIT_X100-THROTTLE_SPEED_RAMP_X100, THROTTLE_SPEED_LIMIT_X100, uint16_mapped_Throttle, 0);
+		  #endif
+		  
 		  if(uint16_mapped_PAS>uint16_mapped_Throttle)ui16_setpoint_temp=(int32_t)uint16_mapped_PAS;
 		  else ui16_setpoint_temp=uint16_mapped_Throttle;
 		  //push assist with constant power
 		  if(ui8_Push_Assist_flag)ui16_setpoint_temp=150*KM.Settings.DoublePushAssist;
 		  }//end else break
 
+		  // immer Geschwindigkeitbegrenzung
 		  // limit speed if legal Flag is set
-		  if(KM.Settings.LegalFlag){
+		  // if(KM.Settings.LegalFlag){
 			if(ui16_PAS_counter<PAS_TIMEOUT){//ramp down setpoint at speed limit
-				PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, KM.Rx.SPEEDMAX_Limit,KM.Rx.SPEEDMAX_Limit+200,ui16_setpoint_temp,0);
+				// Bei Speedlimt=25  ab 23 auslaufend bis 25             
+				//PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, KM.Rx.SPEEDMAX_Limit,KM.Rx.SPEEDMAX_Limit+200,ui16_setpoint_temp,0);
+				PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, KM.Rx.SPEEDMAX_Limit-200,KM.Rx.SPEEDMAX_Limit,ui16_setpoint_temp,0);
 				}
 			else{ //limit to 6km/h if pedals are not turning
-				PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, 500,700,ui16_setpoint_temp,0);
+				PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, 500,600,ui16_setpoint_temp,0);
 				}
-		  	  }
-		  else PI_battery_current.setpoint=ui16_setpoint_temp;
+		  // }
+		  //else PI_battery_current.setpoint=ui16_setpoint_temp;
 
 
 		  // disable PWM if motor is at standstill and dutycycle is zero
