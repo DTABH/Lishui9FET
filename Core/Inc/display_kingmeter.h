@@ -115,6 +115,8 @@ typedef struct
  #define KM_MAX_RXBUFF 64
  #define KM5S_NM_RXBUFF 15 // KM5S RX-Buffer length for normal mode
  #define KM_MAX_TXBUFF 13
+ #define KM_MAX_DATALEN 20                     // Maximum data bytes accepted in one 5S frame
+ #define KM_MAX_FRAME  (KM_MAX_DATALEN + 8)    // 3 header + data + 2 checksum + CRLF
 
 
 typedef struct
@@ -141,7 +143,25 @@ typedef struct
 
 void KingMeter_Service(KINGMETER_t* KM_ctx);
 
+void KingMeter_RxService(KINGMETER_t* KM_ctx);
+
+void KingMeter_TxService(KINGMETER_t* KM_ctx);
+
 void KingMeter_Init (KINGMETER_t* KM_ctx);
+
+
+
+
+// Debug values (watch them in STM32CubeIDE)
+
+extern volatile uint32_t KM_RxFramesGood;
+extern volatile uint32_t KM_RxFramesBad;
+extern volatile uint32_t KM_TxFramesDropped;
+
+extern volatile uint8_t  KM_LastRxFrame[KM_MAX_FRAME];
+extern volatile uint8_t  KM_LastRxLength;
+extern volatile uint8_t  KM_LastTxFrame[KM_MAX_TXBUFF];
+extern volatile uint8_t  KM_LastTxLength;
 
 
 #endif // KINGMETER_H
