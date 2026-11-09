@@ -283,9 +283,10 @@ int main(void)
   while (1)
   {
 	  if(ui8_UART_flag){
-		  KingMeter_Service(&KM);
 		  ui8_UART_flag=0;
+		  KingMeter_RxService(&KM);
 	  }
+	  KingMeter_TxService(&KM);
 	  if(ui8_SPEED_flag&&ui16_SPEED_counter>100){
 		  ui16_SPEED=ui16_SPEED_counter;
 		  ui16_SPEED_counter=0;
@@ -995,6 +996,7 @@ int16_t internal_tics_to_speedx100 (uint32_t tics){
 }
 
 int16_t external_tics_to_speedx100 (uint32_t tics){
+	if(KM.Settings.SPS_SpdMagnets==0 || tics==0)return 0; //avoid division by zero
 	return KM.Settings.WheelSize_mm*16*360/(KM.Settings.SPS_SpdMagnets*tics); //Faktor kontrollieren! 16kHz Zählerfrequenz
 }
 
@@ -1272,7 +1274,7 @@ void kingmeter_update(void)
     }
 
 
-    if(ui16_SPEED_counter<63000)KM.Tx.Wheeltime_ms = ((ui16_SPEED*KM.Settings.SPS_SpdMagnets)>>4); //>>4 because of 16 kHz counter frequency, so 16 tics per ms
+    if(ui16_SPEED_counter<63000 && KM.Settings.SPS_SpdMagnets!=0)KM.Tx.Wheeltime_ms = ((ui16_SPEED*KM.Settings.SPS_SpdMagnets)>>4); //>>4 because of 16 kHz counter frequency, so 16 tics per ms
     else KM.Tx.Wheeltime_ms = 64000;
 
 
