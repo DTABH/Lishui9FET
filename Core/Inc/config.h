@@ -12,9 +12,15 @@
 
 #define P_FACTOR 200
 #define I_FACTOR 10
-//avoid redefined warning
-#ifndef DEBUG
-#define DEBUG
+
+//avoid redefined warning führt imDEBUG-Modus zu falscher Baudrate die C500-Kommunikation
+//#ifndef DEBUG
+//#define DEBUG
+//#endif
+
+/* UART1 wird für die C500-Kommunikation verwendet */
+#ifdef DEBUG
+#undef DEBUG
 #endif
 
 #define PERIOD 3000 //@48MHz for 16kHz PWM frequency
