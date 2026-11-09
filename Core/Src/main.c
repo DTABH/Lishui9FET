@@ -123,7 +123,7 @@ uint16_t uint16_mapped_PAS=0;
 uint16_t uint16_mapped_Throttle=0;
 //uint8_t hall_sequence[7]={4,5,1,3,2,6};
 uint8_t hall_sequence[2][7]={
-		{0,3,5,4,1,2,6},
+    {0,1,3,2,5,6,4},
 		{0,4,6,5,2,3,1}};
 
 
