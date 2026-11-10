@@ -79,6 +79,7 @@ typedef struct
 {
     // Parameters received from display in operation mode:
     uint8_t  AssistLevel;               // 0..255 Power Assist Level
+    uint8_t  AssistLevelIndex;          // 0..5 assist level index (0 = off)
     uint8_t  Headlight;                 // KM_HEADLIGHT_OFF / KM_HEADLIGHT_ON / KM_HEADLIGHT_LOW / KM_HEADLIGHT_HIGH
     uint8_t  Battery;                   // KM_BATTERY_NORMAL / KM_BATTERY_LOW
     uint8_t  PushAssist;                // KM_PUSHASSIST_OFF / KM_PUSHASSIST_ON
