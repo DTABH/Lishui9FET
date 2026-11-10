@@ -143,6 +143,18 @@ enum {Powerlevels, NCTE, ERider, Spare};
 PI_control_t PI_battery_current;
 KINGMETER_t KM;
 
+/* PAS assist level speed limits in 0.01 km/h (level 0 = no assist).
+ * Level 5 is additionally capped by KM.Rx.SPEEDMAX_Limit / SPEEDLIMIT.
+ * The limits themselves are configured in config.h. */
+static const uint16_t PAS_SpeedLimit_x100[6] = {
+    0,
+    PAS_SPEED_LIMIT_L1_X100,
+    PAS_SPEED_LIMIT_L2_X100,
+    PAS_SPEED_LIMIT_L3_X100,
+    PAS_SPEED_LIMIT_L4_X100,
+    PAS_SPEED_LIMIT_L5_X100
+};
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -377,7 +389,10 @@ int main(void)
 			}
 		  //check for Throttle override
 		  uint16_mapped_Throttle = map(ui16_throttle, ui16_throttle_offset , THROTTLE_MAX, 0, ui16_battery_current_max_raw);
-		  
+		  /* More current at part throttle, but never above the configured limit */
+		  uint16_mapped_Throttle = (uint16_t)(((uint32_t)uint16_mapped_Throttle * THROTTLE_POWER_BOOST) / 100);
+		  if(uint16_mapped_Throttle > ui16_battery_current_max_raw)uint16_mapped_Throttle=ui16_battery_current_max_raw;
+
 		  #if THROTTLE_SPEED_LIMIT_X100 > 0
 			//limit throttle to its own speed limit (independent of PAS and LegalFlag)
 			uint16_mapped_Throttle = map(ui16_SPEEDx100_kph, THROTTLE_SPEED_LIMIT_X100-THROTTLE_SPEED_RAMP_X100, THROTTLE_SPEED_LIMIT_X100, uint16_mapped_Throttle, 0);
@@ -393,12 +408,34 @@ int main(void)
 		  // limit speed if legal Flag is set
 		  // if(KM.Settings.LegalFlag){
 			if(ui16_PAS_counter<PAS_TIMEOUT){//ramp down setpoint at speed limit
-				// Bei Speedlimt=25  ab 23 auslaufend bis 25             
-				//PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, KM.Rx.SPEEDMAX_Limit,KM.Rx.SPEEDMAX_Limit+200,ui16_setpoint_temp,0);
-				PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, KM.Rx.SPEEDMAX_Limit-200,KM.Rx.SPEEDMAX_Limit,ui16_setpoint_temp,0);
+				/* Per-level speed limit: level 1..5 -> 6/10/15/20/25 km/h.
+				 * The display's maximum speed is an additional upper bound.
+				 * Level 0 (off) keeps the display limit so the throttle
+				 * still works when no PAS level is selected. */
+				uint16_t ui16_level_speed_limit = KM.Rx.SPEEDMAX_Limit;
+				if(KM.Rx.AssistLevelIndex > 0)
+				{
+					uint16_t ui16_pas_speed_limit = PAS_SpeedLimit_x100[KM.Rx.AssistLevelIndex];
+					if(ui16_pas_speed_limit < ui16_level_speed_limit)
+					{
+						ui16_level_speed_limit = ui16_pas_speed_limit;
+					}
 				}
-			else{ //limit to 6km/h if pedals are not turning
-				PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, 500,600,ui16_setpoint_temp,0);
+				PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, ui16_level_speed_limit-200, ui16_level_speed_limit, ui16_setpoint_temp, 0);
+				}
+			else{ //pedals are not turning: throttle is already speed-limited above
+				if(ui8_Push_Assist_flag)
+				{
+			#if THROTTLE_SPEED_LIMIT_X100 > 0
+					PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, THROTTLE_SPEED_LIMIT_X100-THROTTLE_SPEED_RAMP_X100, THROTTLE_SPEED_LIMIT_X100, ui16_setpoint_temp, 0);
+			#else
+					PI_battery_current.setpoint=ui16_setpoint_temp;
+			#endif
+				}
+				else
+				{
+					PI_battery_current.setpoint=ui16_setpoint_temp;
+				}
 				}
 		  // }
 		  //else PI_battery_current.setpoint=ui16_setpoint_temp;
@@ -1293,12 +1330,12 @@ void kingmeter_update(void)
 
     if(KM.Rx.Headlight == KM_HEADLIGHT_OFF)
         {
-        	HAL_GPIO_WritePin(Light_GPIO_Port, Light_Pin, GPIO_PIN_RESET);
+        	//HAL_GPIO_WritePin(LIGHT_GPIO_Port, LIGHT_Pin, GPIO_PIN_RESET);
 
         }
         else // KM_HEADLIGHT_ON, KM_HEADLIGHT_LOW, KM_HEADLIGHT_HIGH
         {
-        	HAL_GPIO_WritePin(Light_GPIO_Port, Light_Pin, GPIO_PIN_SET);
+        	//HAL_GPIO_WritePin(LIGHT_GPIO_Port, LIGHT_Pin, GPIO_PIN_SET);
 
         }
 

@@ -221,6 +221,7 @@ void KingMeter_Init (KINGMETER_t* KM_ctx)
     // Parameters received from display in operation mode:
 
 	KM_ctx->Rx.AssistLevel                  = 128;					//MK5S Level 0...255
+    KM_ctx->Rx.AssistLevelIndex             = 0;                    //0..5 (0 = off)
 
 
     KM_ctx->Rx.Headlight                    = KM_HEADLIGHT_OFF;
@@ -486,6 +487,14 @@ static void KM_Handle52(KINGMETER_t* KM_ctx, const uint8_t* frame)
         else
         {
             KM_ctx->Rx.AssistLevel = frame[4];              // 0..255
+        }
+
+        /* C500 sends 0, 50, 100, 150, 200, 250 for levels 0..5.
+         * Keep a separate 0..5 index for the per-level speed limits. */
+        KM_ctx->Rx.AssistLevelIndex = frame[4] / 50;
+        if (KM_ctx->Rx.AssistLevelIndex > 5)
+        {
+            KM_ctx->Rx.AssistLevelIndex = 5;
         }
 
         KM_ctx->Rx.Headlight     = (frame[5] & 0xC0) >> 6;  // KM_HEADLIGHT_OFF / ON / LOW / HIGH
