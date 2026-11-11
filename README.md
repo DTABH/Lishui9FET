@@ -38,6 +38,17 @@ Beim Versuch, die Pins mit Litzen zu versehen, habe ich dann den Chip bzw. die B
 Mit Kaptonband und Heißluft den Chip ausgelötet und einen neuen eingelötet. Dann ging es mit dem Programmieren. 
 Das Heißluftlöten war aber in dem engen Raum auf dem Controller nicht so einfach. 
 Mit dem Lötkolben die Pins nochmals nachgelötet. Mit viel, viel Flussmittel.
+Damit ich den Kontroller auch nachträglich programmieren kann ein USB-C buchse mit Kabel nach uaßen geführt
+Dabei nur GND, D+ und D- angelötet  Die 5 Volt Leitung der USB-C  NICHT an die 3,3 Volt des STM32 verbinden sondern abschneiden
+GND, D+ und D-  reichen für den ST-Link man muss den C500 allerdings einschalten (Der schaltet sich automatisch auch aus, dann wieder einschalten :-))
+
+Mit Opencode noch ein parr Verbesserungen bei der PAS-Steuerung durchgeführt
+Jetzt sind Pas 1 bis 5 für 5 bis 15 km/h (5km stufen) angepasst (davor war Pas 5 für 30 km/h gedacht 6 km stufen)
+Handgas geht zwar nur bis 5 Km/h dafür aber kraftvoll und damit brauchbar.
+Licht geht auch
+
+Für mich aktuell mein finaler Stand 
+
 
 #------------------------- ALT -------------------------------------------------------
 
