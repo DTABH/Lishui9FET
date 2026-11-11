@@ -119,6 +119,7 @@ uint8_t ui8_assist_level=127;
 uint16_t ui16_SPEED_counter=64000;
 uint16_t ui16_SPEED=0;
 uint16_t ui16_SPEEDx100_kph=0;
+uint16_t ui16_speed_timeout=63000; //dynamic no-pulse timeout in 16 kHz ticks
 uint16_t uint16_mapped_PAS=0;
 uint16_t uint16_mapped_Throttle=0;
 //uint8_t hall_sequence[7]={4,5,1,3,2,6};
@@ -128,6 +129,7 @@ uint8_t hall_sequence[2][7]={
 
 
 uint16_t ui16_dutycycle = 1;
+uint16_t ui16_dutycycle_applied = 1; //duty cycle that was really driven in the previous PWM period
 uint16_t ui16_throttle_cumulated = 0;
 uint16_t ui16_torque_cumulated = 0;
 char tx_buffer[100];
@@ -142,6 +144,18 @@ enum {Powerlevels, NCTE, ERider, Spare};
 
 PI_control_t PI_battery_current;
 KINGMETER_t KM;
+
+/* PAS assist level speed limits in 0.01 km/h (level 0 = no assist).
+ * Level 5 is additionally capped by KM.Rx.SPEEDMAX_Limit / SPEEDLIMIT.
+ * The limits themselves are configured in config.h. */
+static const uint16_t PAS_SpeedLimit_x100[6] = {
+    0,
+    PAS_SPEED_LIMIT_L1_X100,
+    PAS_SPEED_LIMIT_L2_X100,
+    PAS_SPEED_LIMIT_L3_X100,
+    PAS_SPEED_LIMIT_L4_X100,
+    PAS_SPEED_LIMIT_L5_X100
+};
 
 /* USER CODE END PFP */
 
@@ -293,6 +307,13 @@ int main(void)
 		  ui8_SPEED_flag=0;
 		  //calculate speed
 		  ui16_SPEEDx100_kph = external_tics_to_speedx100 (ui16_SPEED);
+		  /* Drop to 0 quickly after the wheel stops: timeout is 1.5x the last
+		   * pulse interval, clamped to 0.25 s .. 3.94 s. This keeps low-speed
+		   * measurement working but avoids the old fixed 4 s lag. */
+		  uint32_t ui32_speed_timeout = (uint32_t)ui16_SPEED + (ui16_SPEED >> 1);
+		  if(ui32_speed_timeout < 4000) ui32_speed_timeout = 4000;
+		  if(ui32_speed_timeout > 63000) ui32_speed_timeout = 63000;
+		  ui16_speed_timeout = (uint16_t)ui32_speed_timeout;
 	  }
 
 	  if(ui8_PAS_flag&&ui16_PAS_counter>100){
@@ -326,10 +347,25 @@ int main(void)
 		  else  PI_battery_current.max_step=500;
 		  if(LL_TIM_IsEnabledAllOutputs(TIM1)) ui16_dutycycle = PI_control(&PI_battery_current);
 		  //ui16_dutycycle = PI_control(&PI_battery_current);
-		  // Motorcurrent = Battery current / DutyCycle
-		  i32_motor_current_raw =i16_battery_current_raw*PERIOD/ui16_dutycycle;
-		  // limit Motorcurrent
-		  ui16_dutycycle = map(i32_motor_current_raw, 1200, 1350, ui16_dutycycle,1);
+		  /* Motor current = battery current / duty cycle. Estimate it from the
+		   * duty cycle that was actually applied in the previous PWM period,
+		   * not from the freshly requested one. Using the requested value
+		   * made the limiter switch the output hard on/off at low speed with
+		   * assist level 5 (motor "an/aus/an/aus"). */
+		  i32_motor_current_raw = i16_battery_current_raw*PERIOD/ui16_dutycycle_applied;
+		  /* Soft motor current limit: fade the duty cycle down over the
+		   * 1200..1350 window, but never below 100 counts. Keep the PI
+		   * integrator in sync so it cannot wind up while limiting. */
+		  if(i32_motor_current_raw > 1200)
+		  {
+			  uint16_t ui16_duty_limited = (uint16_t)map(i32_motor_current_raw, 1200, 1350, ui16_dutycycle, 100);
+			  if(ui16_duty_limited < ui16_dutycycle)
+			  {
+				  ui16_dutycycle = ui16_duty_limited;
+				  PI_battery_current.out = (int32_t)ui16_dutycycle << PI_battery_current.shift;
+			  }
+		  }
+		  ui16_dutycycle_applied = ui16_dutycycle;
 		  LL_TIM_OC_SetCompareCH1(TIM1, ui16_dutycycle);
 		  LL_TIM_OC_SetCompareCH2(TIM1, ui16_dutycycle);
 		  LL_TIM_OC_SetCompareCH3(TIM1, ui16_dutycycle);
@@ -348,8 +384,8 @@ int main(void)
 #endif
 			  slow_loop_counter=0;
 		  	  }
-		  // reset speed if, no speed pulse occurs
-		  if(ui16_SPEED_counter>63000){
+		  // reset speed if no speed pulse occurs (dynamic timeout)
+		  if(ui16_SPEED_counter>ui16_speed_timeout){
 			  ui16_SPEEDx100_kph=0;
 			  ui16_SPEED=64000;
 		  }
@@ -377,7 +413,10 @@ int main(void)
 			}
 		  //check for Throttle override
 		  uint16_mapped_Throttle = map(ui16_throttle, ui16_throttle_offset , THROTTLE_MAX, 0, ui16_battery_current_max_raw);
-		  
+		  /* More current at part throttle, but never above the configured limit */
+		  uint16_mapped_Throttle = (uint16_t)(((uint32_t)uint16_mapped_Throttle * THROTTLE_POWER_BOOST) / 100);
+		  if(uint16_mapped_Throttle > ui16_battery_current_max_raw)uint16_mapped_Throttle=ui16_battery_current_max_raw;
+
 		  #if THROTTLE_SPEED_LIMIT_X100 > 0
 			//limit throttle to its own speed limit (independent of PAS and LegalFlag)
 			uint16_mapped_Throttle = map(ui16_SPEEDx100_kph, THROTTLE_SPEED_LIMIT_X100-THROTTLE_SPEED_RAMP_X100, THROTTLE_SPEED_LIMIT_X100, uint16_mapped_Throttle, 0);
@@ -393,12 +432,34 @@ int main(void)
 		  // limit speed if legal Flag is set
 		  // if(KM.Settings.LegalFlag){
 			if(ui16_PAS_counter<PAS_TIMEOUT){//ramp down setpoint at speed limit
-				// Bei Speedlimt=25  ab 23 auslaufend bis 25             
-				//PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, KM.Rx.SPEEDMAX_Limit,KM.Rx.SPEEDMAX_Limit+200,ui16_setpoint_temp,0);
-				PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, KM.Rx.SPEEDMAX_Limit-200,KM.Rx.SPEEDMAX_Limit,ui16_setpoint_temp,0);
+				/* Per-level speed limit: level 1..5 -> 6/10/15/20/25 km/h.
+				 * The display's maximum speed is an additional upper bound.
+				 * Level 0 (off) keeps the display limit so the throttle
+				 * still works when no PAS level is selected. */
+				uint16_t ui16_level_speed_limit = KM.Rx.SPEEDMAX_Limit;
+				if(KM.Rx.AssistLevelIndex > 0)
+				{
+					uint16_t ui16_pas_speed_limit = PAS_SpeedLimit_x100[KM.Rx.AssistLevelIndex];
+					if(ui16_pas_speed_limit < ui16_level_speed_limit)
+					{
+						ui16_level_speed_limit = ui16_pas_speed_limit;
+					}
 				}
-			else{ //limit to 6km/h if pedals are not turning
-				PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, 500,600,ui16_setpoint_temp,0);
+				PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, ui16_level_speed_limit-200, ui16_level_speed_limit, ui16_setpoint_temp, 0);
+				}
+			else{ //pedals are not turning: throttle is already speed-limited above
+				if(ui8_Push_Assist_flag)
+				{
+			#if THROTTLE_SPEED_LIMIT_X100 > 0
+					PI_battery_current.setpoint=map(ui16_SPEEDx100_kph, THROTTLE_SPEED_LIMIT_X100-THROTTLE_SPEED_RAMP_X100, THROTTLE_SPEED_LIMIT_X100, ui16_setpoint_temp, 0);
+			#else
+					PI_battery_current.setpoint=ui16_setpoint_temp;
+			#endif
+				}
+				else
+				{
+					PI_battery_current.setpoint=ui16_setpoint_temp;
+				}
 				}
 		  // }
 		  //else PI_battery_current.setpoint=ui16_setpoint_temp;
@@ -1274,7 +1335,7 @@ void kingmeter_update(void)
     }
 
 
-    if(ui16_SPEED_counter<63000 && KM.Settings.SPS_SpdMagnets!=0)KM.Tx.Wheeltime_ms = ((ui16_SPEED*KM.Settings.SPS_SpdMagnets)>>4); //>>4 because of 16 kHz counter frequency, so 16 tics per ms
+    if(ui16_SPEEDx100_kph>0 && KM.Settings.SPS_SpdMagnets!=0)KM.Tx.Wheeltime_ms = ((ui16_SPEED*KM.Settings.SPS_SpdMagnets)>>4); //>>4 because of 16 kHz counter frequency, so 16 tics per ms
     else KM.Tx.Wheeltime_ms = 64000;
 
 
@@ -1293,13 +1354,11 @@ void kingmeter_update(void)
 
     if(KM.Rx.Headlight == KM_HEADLIGHT_OFF)
         {
-        	HAL_GPIO_WritePin(Light_GPIO_Port, Light_Pin, GPIO_PIN_RESET);
-
+            HAL_GPIO_WritePin(Light_GPIO_Port, Light_Pin, GPIO_PIN_RESET);
         }
         else // KM_HEADLIGHT_ON, KM_HEADLIGHT_LOW, KM_HEADLIGHT_HIGH
         {
-        	HAL_GPIO_WritePin(Light_GPIO_Port, Light_Pin, GPIO_PIN_SET);
-
+            HAL_GPIO_WritePin(Light_GPIO_Port, Light_Pin, GPIO_PIN_SET);
         }
 
 
